@@ -342,3 +342,24 @@
 .slide-in {
   animation: slide-in 0.3s ease-out;
 }
+
+/* Slide up animation for toast */
+@keyframes slide-up {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.3s ease-out;
+}
+
+/* Save indicator pulse */
+@keyframes save-pulse {
+  0% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.05); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+.save-indicator {
+  animation: save-pulse 0.5s ease-out;
+}

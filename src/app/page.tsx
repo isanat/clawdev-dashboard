@@ -11,6 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Slider } from '@/components/ui/slider'
+import { Toast } from '@/components/ui/notification'
 import { 
   Activity, 
   Brain, 
@@ -43,7 +44,12 @@ import {
   Bug,
   Search,
   Wrench,
-  RefreshCw
+  RefreshCw,
+  Save,
+  Globe,
+  Mail,
+  Camera,
+  TestTube
 } from 'lucide-react'
 
 // ============================================================================
@@ -183,6 +189,42 @@ const DEFAULT_SKILLS: Skill[] = [
     enabled: true,
     usageCount: 78,
     status: 'active'
+  },
+  {
+    id: 'web-navigator',
+    name: 'Web Navigator',
+    description: 'Navega autonomamente em sites com Playwright',
+    icon: <Globe className="w-5 h-5" />,
+    enabled: true,
+    usageCount: 12,
+    status: 'active'
+  },
+  {
+    id: 'form-filler',
+    name: 'Form Filler',
+    description: 'Preenche formulários e cria contas automaticamente',
+    icon: <TestTube className="w-5 h-5" />,
+    enabled: true,
+    usageCount: 8,
+    status: 'idle'
+  },
+  {
+    id: 'ui-analyzer',
+    name: 'UI/UX Analyzer',
+    description: 'Analisa interfaces e gera relatórios visuais com VLM',
+    icon: <Camera className="w-5 h-5" />,
+    enabled: true,
+    usageCount: 5,
+    status: 'idle'
+  },
+  {
+    id: 'email-manager',
+    name: 'Email Manager',
+    description: 'Gerencia emails para confirmações de cadastro',
+    icon: <Mail className="w-5 h-5" />,
+    enabled: true,
+    usageCount: 3,
+    status: 'idle'
   }
 ]
 
@@ -262,10 +304,64 @@ export default function CLAWDEVDashboard() {
     supervised: false,
     maxRetries: 3
   })
+  
+  // Toast notification
+  const [toast, setToast] = useState({ visible: false, message: '', type: 'success' as 'success' | 'error' | 'info' })
+  
+  const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'success') => {
+    setToast({ visible: true, message, type })
+  }, [])
 
   // ============================================================================
   // EFFECTS
   // ============================================================================
+
+  // Auto-save config to localStorage whenever it changes
+  const configSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  
+  useEffect(() => {
+    // Clear previous timeout
+    if (configSaveTimeoutRef.current) {
+      clearTimeout(configSaveTimeoutRef.current)
+    }
+    
+    // Debounce save to avoid too frequent saves
+    configSaveTimeoutRef.current = setTimeout(() => {
+      // Save to localStorage
+      localStorage.setItem('clawdev-config', JSON.stringify(config))
+      
+      // Also save to backend API
+      fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(config)
+      }).catch(() => {
+        // Ignore errors, localStorage is the primary storage
+      })
+      
+      // Show toast notification
+      showToast('Configuração salva!', 'success')
+    }, 500) // 500ms debounce
+    
+    return () => {
+      if (configSaveTimeoutRef.current) {
+        clearTimeout(configSaveTimeoutRef.current)
+      }
+    }
+  }, [config, showToast])
+  
+  // Load config from localStorage on mount
+  useEffect(() => {
+    const savedConfig = localStorage.getItem('clawdev-config')
+    if (savedConfig) {
+      try {
+        const parsed = JSON.parse(savedConfig)
+        setConfig(prev => ({ ...prev, ...parsed }))
+      } catch (e) {
+        // Ignore parse errors
+      }
+    }
+  }, [])
 
   // Agent Loop Simulation
   useEffect(() => {
@@ -461,6 +557,125 @@ export default function CLAWDEVDashboard() {
     addLog('info', `[SKILL] Skill ${skillId} ${skills.find(s => s.id === skillId)?.enabled ? 'desativada' : 'ativada'}`, 'skills')
   }
 
+  // Browser Action Handler
+  const handleBrowserAction = async (action: string, url: string, task?: string) => {
+    const resultsDiv = document.getElementById('browser-results')
+    if (!resultsDiv) return
+    
+    resultsDiv.innerHTML = `
+      <div class="flex items-center justify-center py-8">
+        <RefreshCw class="w-8 h-8 animate-spin text-primary" />
+        <span class="ml-3">Executando ${action}...</span>
+      </div>
+    `
+    
+    addLog('info', `[BROWSER] Iniciando ação: ${action} em ${url}`, 'browser')
+    
+    try {
+      let response
+      
+      if (action === 'autonomous' && task) {
+        // Full autonomous task
+        response = await fetch('/api/autonomous', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ task, context: `URL: ${url}` })
+        })
+      } else if (action === 'analyze') {
+        response = await fetch(`/api/browser?action=analyze&url=${encodeURIComponent(url)}`)
+      } else if (action === 'screenshot') {
+        response = await fetch('/api/browser', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            actions: [
+              { type: 'navigate', value: url },
+              { type: 'screenshot', value: 'full' }
+            ]
+          })
+        })
+      } else if (action === 'register') {
+        response = await fetch('/api/autonomous', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            task: `Criar uma conta no site ${url}`,
+            context: `Email: clawdevagenteai@gmail.com`
+          })
+        })
+      } else {
+        throw new Error('Ação desconhecida')
+      }
+      
+      const data = await response.json()
+      
+      // Build results HTML
+      let resultsHTML = `
+        <div class="space-y-3">
+          <div class="flex items-center gap-2 ${data.success ? 'text-green-400' : 'text-red-400'}">
+            ${data.success ? '<CheckCircle2 class="w-5 h-5" />' : '<AlertTriangle class="w-5 h-5" />'}
+            <span class="font-medium">${data.success ? 'Sucesso!' : 'Erro'}</span>
+          </div>
+      `
+      
+      if (data.results) {
+        for (const result of data.results) {
+          if (result.screenshot) {
+            resultsHTML += `
+              <div class="mt-3">
+                <p class="text-sm text-muted-foreground mb-2">Screenshot:</p>
+                <img src="data:image/png;base64,${result.screenshot}" class="rounded-lg border border-border/50 max-w-full" style="max-height: 400px; object-fit: contain;" />
+              </div>
+            `
+          }
+          if (result.vlmAnalysis) {
+            resultsHTML += `
+              <div class="mt-3 p-3 rounded-lg bg-muted/20">
+                <p class="text-sm font-medium mb-1">Análise VLM:</p>
+                <p class="text-xs text-muted-foreground">${result.vlmAnalysis}</p>
+              </div>
+            `
+          }
+          if (result.data) {
+            resultsHTML += `
+              <div class="mt-3 p-3 rounded-lg bg-muted/20 max-h-48 overflow-auto">
+                <p class="text-sm font-medium mb-1">Dados extraídos:</p>
+                <pre class="text-xs text-muted-foreground whitespace-pre-wrap">${JSON.stringify(result.data, null, 2)}</pre>
+              </div>
+            `
+          }
+        }
+      }
+      
+      if (data.error) {
+        resultsHTML += `
+          <div class="mt-3 p-3 rounded-lg bg-red-500/10 border border-red-500/30">
+            <p class="text-sm text-red-400">${data.error}</p>
+          </div>
+        `
+      }
+      
+      resultsHTML += '</div>'
+      resultsDiv.innerHTML = resultsHTML
+      
+      addLog(data.success ? 'info' : 'error', 
+        `[BROWSER] ${action}: ${data.success ? 'Concluído' : data.error}`, 
+        'browser'
+      )
+      
+      showToast(data.success ? 'Tarefa concluída!' : 'Erro na tarefa', data.success ? 'success' : 'error')
+      
+    } catch (error: any) {
+      resultsDiv.innerHTML = `
+        <div class="p-4 rounded-lg bg-red-500/10 border border-red-500/30">
+          <p class="text-red-400">Erro: ${error.message}</p>
+        </div>
+      `
+      addLog('error', `[BROWSER] Erro: ${error.message}`, 'browser')
+      showToast('Erro ao executar tarefa', 'error')
+    }
+  }
+
   // ============================================================================
   // RENDER
   // ============================================================================
@@ -489,6 +704,7 @@ export default function CLAWDEVDashboard() {
           {[
             { id: 'dashboard', icon: Activity, label: 'Dashboard' },
             { id: 'agent', icon: Brain, label: 'Agente' },
+            { id: 'browser', icon: Globe, label: 'Navegador' },
             { id: 'chat', icon: MessageSquare, label: 'Chat AI' },
             { id: 'skills', icon: Zap, label: 'Skills' },
             { id: 'logs', icon: Terminal, label: 'Logs' },
@@ -530,6 +746,7 @@ export default function CLAWDEVDashboard() {
             <h2 className="text-xl font-semibold">
               {activeTab === 'dashboard' && 'Dashboard'}
               {activeTab === 'agent' && 'Agente Autônomo'}
+              {activeTab === 'browser' && 'Navegador Autônomo'}
               {activeTab === 'chat' && 'Chat AI'}
               {activeTab === 'skills' && 'Skills'}
               {activeTab === 'logs' && 'Logs do Sistema'}
@@ -1088,6 +1305,163 @@ export default function CLAWDEVDashboard() {
             </div>
           )}
 
+          {/* BROWSER TAB */}
+          {activeTab === 'browser' && (
+            <div className="space-y-6">
+              {/* Autonomous Task Input */}
+              <Card className="glass-card">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Globe className="w-5 h-5 text-primary" />
+                    Tarefa Autônoma
+                  </CardTitle>
+                  <CardDescription>
+                    Descreva o que você quer que o CLAWDEV faça autonomamente
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-1 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">URL do Site</label>
+                      <Input 
+                        placeholder="https://exemplo.com" 
+                        id="browser-url"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Tarefa</label>
+                      <textarea 
+                        className="w-full h-24 px-3 py-2 text-sm rounded-lg bg-muted/20 border border-border/50 focus:border-primary focus:outline-none resize-none"
+                        placeholder="Ex: Criar uma conta, preencher o formulário de contato, analisar a UI/UX..."
+                        id="browser-task"
+                      />
+                    </div>
+                  </div>
+                  
+                  {/* Quick Actions */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                    <Button 
+                      variant="outline" 
+                      className="flex flex-col items-center gap-1 h-auto py-3"
+                      onClick={() => {
+                        const url = (document.getElementById('browser-url') as HTMLInputElement)?.value
+                        if (url) {
+                          handleBrowserAction('analyze', url)
+                        }
+                      }}
+                    >
+                      <Eye className="w-5 h-5 text-cyan-400" />
+                      <span className="text-xs">Analisar UI/UX</span>
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      className="flex flex-col items-center gap-1 h-auto py-3"
+                      onClick={() => {
+                        const url = (document.getElementById('browser-url') as HTMLInputElement)?.value
+                        if (url) {
+                          handleBrowserAction('screenshot', url)
+                        }
+                      }}
+                    >
+                      <Camera className="w-5 h-5 text-purple-400" />
+                      <span className="text-xs">Screenshot</span>
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      className="flex flex-col items-center gap-1 h-auto py-3"
+                      onClick={() => {
+                        const url = (document.getElementById('browser-url') as HTMLInputElement)?.value
+                        if (url) {
+                          handleBrowserAction('register', url)
+                        }
+                      }}
+                    >
+                      <User className="w-5 h-5 text-green-400" />
+                      <span className="text-xs">Criar Conta</span>
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      className="flex flex-col items-center gap-1 h-auto py-3"
+                      onClick={() => {
+                        const url = (document.getElementById('browser-url') as HTMLInputElement)?.value
+                        const task = (document.getElementById('browser-task') as HTMLTextAreaElement)?.value
+                        if (url && task) {
+                          handleBrowserAction('autonomous', url, task)
+                        }
+                      }}
+                    >
+                      <TestTube className="w-5 h-5 text-orange-400" />
+                      <span className="text-xs">Auto Executar</span>
+                    </Button>
+                  </div>
+                  
+                  <Button 
+                    className="w-full"
+                    onClick={() => {
+                      const url = (document.getElementById('browser-url') as HTMLInputElement)?.value
+                      const task = (document.getElementById('browser-task') as HTMLTextAreaElement)?.value
+                      if (url && task) {
+                        handleBrowserAction('autonomous', url, task)
+                      }
+                    }}
+                  >
+                    <Play className="w-4 h-4 mr-2" />
+                    Executar Tarefa Autônoma
+                  </Button>
+                </CardContent>
+              </Card>
+
+              {/* Browser Results */}
+              <Card className="glass-card">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <CheckCircle2 className="w-4 h-4 text-primary" />
+                    Resultados
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4" id="browser-results">
+                    <div className="text-center text-muted-foreground py-8">
+                      <Globe className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                      <p>Nenhuma tarefa executada ainda</p>
+                      <p className="text-xs mt-1">Insira uma URL e descreva a tarefa</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Email Integration */}
+              <Card className="glass-card">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Mail className="w-4 h-4 text-primary" />
+                    Email do CLAWDEV
+                  </CardTitle>
+                  <CardDescription>
+                    Email configurado para criar contas e receber confirmações
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-center justify-between p-3 rounded-lg bg-muted/20">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center">
+                        <Mail className="w-5 h-5 text-primary" />
+                      </div>
+                      <div>
+                        <p className="font-medium">clawdevagenteai@gmail.com</p>
+                        <p className="text-xs text-muted-foreground">Pronto para receber confirmações</p>
+                      </div>
+                    </div>
+                    <Badge className="text-green-400 bg-green-400/10">Ativo</Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-3">
+                    Nota: Para envio de emails, ative a verificação em 2 etapas no Gmail e crie uma Senha de App.
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
           {/* CONFIG TAB */}
           {activeTab === 'config' && (
             <div className="space-y-6 max-w-2xl">
@@ -1203,6 +1577,14 @@ export default function CLAWDEVDashboard() {
 
         </div>
       </main>
+      
+      {/* Toast Notification */}
+      <Toast
+        message={toast.message}
+        type={toast.type}
+        visible={toast.visible}
+        onClose={() => setToast(prev => ({ ...prev, visible: false }))}
+      />
     </div>
   )
 }
