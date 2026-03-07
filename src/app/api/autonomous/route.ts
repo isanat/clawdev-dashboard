@@ -69,27 +69,16 @@ export async function POST(request: NextRequest) {
       }, { status: 400 })
     }
     
-    // Initialize Z.AI with API key from environment
+    // Get API keys from environment
     const ZAI_API_KEY = process.env.ZAI_API_KEY || ''
     const GROQ_API_KEY = process.env.GROQ_API_KEY || ''
     
-    // Try Z.AI first, fallback to GROQ if needed
-    let zai: any = null
-    let useGroq = false
-    
-    if (ZAI_API_KEY) {
-      try {
-        zai = await ZAI.create({ apiKey: ZAI_API_KEY })
-      } catch (e) {
-        console.log('Z.AI init failed, will use GROQ fallback')
-        useGroq = true
-      }
-    } else {
-      useGroq = true
-    }
-    
     // Function to call GROQ API
     async function callGroq(messages: Array<{role: string, content: string}>): Promise<string> {
+      if (!GROQ_API_KEY) {
+        throw new Error('GROQ_API_KEY not configured')
+      }
+      
       const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -112,34 +101,62 @@ export async function POST(request: NextRequest) {
       return data.choices[0]?.message?.content || ''
     }
     
-    // Ask AI to plan the task
+    // Function to call Z.AI API (uses SDK or direct API)
+    async function callZAI(messages: Array<{role: string, content: string}>): Promise<string> {
+      if (!ZAI_API_KEY) {
+        throw new Error('ZAI_API_KEY not configured')
+      }
+      
+      // Try using Z.AI SDK
+      try {
+        const zai = await ZAI.create({ apiKey: ZAI_API_KEY })
+        const response = await zai.chat.completions.create({
+          messages,
+          temperature: 0.3
+        })
+        return response.choices[0]?.message?.content || ''
+      } catch (sdkError: any) {
+        // SDK failed, try direct API call
+        console.log('Z.AI SDK failed, trying direct API:', sdkError.message)
+        
+        const response = await fetch('https://api.z.ai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${ZAI_API_KEY}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            model: 'glm-4-plus',
+            messages,
+            temperature: 0.3,
+            max_tokens: 2000
+          })
+        })
+        
+        if (!response.ok) {
+          throw new Error(`Z.AI API error: ${response.status}`)
+        }
+        
+        const data = await response.json()
+        return data.choices[0]?.message?.content || ''
+      }
+    }
+    
+    // Ask AI to plan the task - try Z.AI first, then GROQ
     let planText = ''
     
-    if (useGroq || !zai) {
-      // Use GROQ fallback
+    try {
+      planText = await callZAI([
+        { role: 'system', content: AUTONOMOUS_SYSTEM_PROMPT },
+        { role: 'user', content: `Task: ${task}\n\nContext: ${context || 'No additional context'}\n\nPlan and provide actions to complete this task. Respond ONLY with valid JSON.` }
+      ])
+      console.log('Used Z.AI for planning')
+    } catch (zaiError: any) {
+      console.log('Z.AI failed, using GROQ:', zaiError.message)
       planText = await callGroq([
         { role: 'system', content: AUTONOMOUS_SYSTEM_PROMPT },
         { role: 'user', content: `Task: ${task}\n\nContext: ${context || 'No additional context'}\n\nPlan and provide actions to complete this task. Respond ONLY with valid JSON.` }
       ])
-    } else {
-      // Use Z.AI
-      try {
-        const planResponse = await zai.chat.completions.create({
-          messages: [
-            { role: 'system', content: AUTONOMOUS_SYSTEM_PROMPT },
-            { role: 'user', content: `Task: ${task}\n\nContext: ${context || 'No additional context'}\n\nPlan and provide actions to complete this task. Respond ONLY with valid JSON.` }
-          ],
-          temperature: 0.3
-        })
-        planText = planResponse.choices[0]?.message?.content || ''
-      } catch (e: any) {
-        // Fallback to GROQ
-        console.log('Z.AI failed, using GROQ fallback:', e.message)
-        planText = await callGroq([
-          { role: 'system', content: AUTONOMOUS_SYSTEM_PROMPT },
-          { role: 'user', content: `Task: ${task}\n\nContext: ${context || 'No additional context'}\n\nPlan and provide actions to complete this task. Respond ONLY with valid JSON.` }
-        ])
-      }
     }
     
     // Parse the AI response
@@ -176,10 +193,12 @@ export async function POST(request: NextRequest) {
       executionResults = await executeBrowserActions(limitedActions)
       success = executionResults.every((r: any) => r.success)
       
-      // If we have screenshots, analyze them with VLM
+      // If we have screenshots, analyze them with VLM (using GROQ with vision or skip)
       const screenshotResult = executionResults.find((r: any) => r.screenshot)
-      if (screenshotResult?.screenshot) {
+      if (screenshotResult?.screenshot && ZAI_API_KEY) {
         try {
+          // Try Z.AI VLM
+          const zai = await ZAI.create({ apiKey: ZAI_API_KEY })
           const vlmResponse = await zai.chat.completions.create({
             messages: [
               {
@@ -204,6 +223,7 @@ export async function POST(request: NextRequest) {
           })
         } catch (vlmError) {
           console.error('VLM analysis failed:', vlmError)
+          // VLM is optional, continue without it
         }
       }
     }
