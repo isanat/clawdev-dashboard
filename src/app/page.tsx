@@ -49,8 +49,11 @@ import {
   Globe,
   Mail,
   Camera,
-  TestTube
+  TestTube,
+  Square,
+  AlertCircle
 } from 'lucide-react'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 
 // ============================================================================
 // TYPES
@@ -227,6 +230,314 @@ const DEFAULT_SKILLS: Skill[] = [
     status: 'idle'
   }
 ]
+
+// ============================================================================
+// AGENT CONTROL PANEL INLINE COMPONENT
+// ============================================================================
+
+function AgentControlPanelInline() {
+  const [controlStatus, setControlStatus] = useState<{
+    state: string
+    isRunning: boolean
+    isPaused: boolean
+    healthScore: number
+    totalCycles: number
+    uptime: number
+    consecutiveErrors: number
+    lastError: string | null
+  }>({
+    state: 'idle',
+    isRunning: false,
+    isPaused: false,
+    healthScore: 100,
+    totalCycles: 0,
+    uptime: 0,
+    consecutiveErrors: 0,
+    lastError: null
+  })
+  
+  const [controlConfig, setControlConfig] = useState<{
+    mode: string
+    autoRecover: boolean
+    autoImprove: boolean
+    learningEnabled: boolean
+    loopIntervalMs: number
+  }>({
+    mode: 'autonomous',
+    autoRecover: true,
+    autoImprove: true,
+    learningEnabled: true,
+    loopIntervalMs: 10000
+  })
+  
+  const [loading, setLoading] = useState(false)
+  const [learnings, setLearnings] = useState<Array<{id: string; insight: string; confidence: number; type: string}>>([])
+  
+  // Fetch control status
+  const fetchControlStatus = useCallback(async () => {
+    try {
+      const res = await fetch('/api/agent/control?action=status')
+      const data = await res.json()
+      if (data.success && data.status) {
+        setControlStatus({
+          state: data.status.state || 'idle',
+          isRunning: data.status.isRunning || false,
+          isPaused: data.status.isPaused || false,
+          healthScore: data.status.healthScore || 100,
+          totalCycles: data.status.totalCycles || 0,
+          uptime: data.status.uptime || 0,
+          consecutiveErrors: data.status.consecutiveErrors || 0,
+          lastError: data.status.lastError || null
+        })
+      }
+    } catch (e) {
+      // Ignore errors
+    }
+  }, [])
+  
+  // Fetch control config
+  const fetchControlConfig = useCallback(async () => {
+    try {
+      const res = await fetch('/api/agent/control?action=config')
+      const data = await res.json()
+      if (data.success && data.config) {
+        setControlConfig({
+          mode: data.config.mode || 'autonomous',
+          autoRecover: data.config.autoRecover ?? true,
+          autoImprove: data.config.autoImprove ?? true,
+          learningEnabled: data.config.learningEnabled ?? true,
+          loopIntervalMs: data.config.loopIntervalMs || 10000
+        })
+      }
+    } catch (e) {
+      // Ignore errors
+    }
+  }, [])
+  
+  // Fetch learnings
+  const fetchLearnings = useCallback(async () => {
+    try {
+      const res = await fetch('/api/agent/control?action=learning')
+      const data = await res.json()
+      if (data.success && data.learnings) {
+        setLearnings(data.learnings.slice(0, 10))
+      }
+    } catch (e) {
+      // Ignore errors
+    }
+  }, [])
+  
+  // Send control action
+  const sendAction = async (action: string, body: Record<string, unknown> = {}) => {
+    setLoading(true)
+    try {
+      const res = await fetch('/api/agent/control', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, auth: 'Clawdev2024!', ...body })
+      })
+      const data = await res.json()
+      if (data.success) {
+        await fetchControlStatus()
+        await fetchControlConfig()
+      }
+      return data
+    } catch (e) {
+      return { success: false, error: 'Connection error' }
+    } finally {
+      setLoading(false)
+    }
+  }
+  
+  // Initial load
+  useEffect(() => {
+    fetchControlStatus()
+    fetchControlConfig()
+    fetchLearnings()
+    
+    const interval = setInterval(fetchControlStatus, 5000)
+    return () => clearInterval(interval)
+  }, [fetchControlStatus, fetchControlConfig, fetchLearnings])
+  
+  const formatUptimeMs = (ms: number) => {
+    const seconds = Math.floor(ms / 1000)
+    const minutes = Math.floor(seconds / 60)
+    const hours = Math.floor(minutes / 60)
+    if (hours > 0) return `${hours}h ${minutes % 60}m`
+    if (minutes > 0) return `${minutes}m ${seconds % 60}s`
+    return `${seconds}s`
+  }
+  
+  const getStateColor = (state: string) => {
+    switch (state) {
+      case 'running': return 'text-green-400 border-green-400 bg-green-400/10'
+      case 'paused': return 'text-yellow-400 border-yellow-400 bg-yellow-400/10'
+      case 'error': return 'text-red-400 border-red-400 bg-red-400/10'
+      case 'recovering': return 'text-purple-400 border-purple-400 bg-purple-400/10'
+      default: return 'text-gray-400 border-gray-400 bg-gray-400/10'
+    }
+  }
+  
+  return (
+    <div className="space-y-6">
+      {/* Status Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card className="glass-card">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between mb-2">
+              <Activity className="w-5 h-5 text-primary" />
+              <Badge className={getStateColor(controlStatus.state)}>
+                {controlStatus.state.toUpperCase()}
+              </Badge>
+            </div>
+            <p className="text-sm text-muted-foreground">Agent State</p>
+          </CardContent>
+        </Card>
+        
+        <Card className="glass-card">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between mb-2">
+              <Zap className="w-5 h-5 text-primary" />
+              <span className="text-xl font-bold">{controlStatus.healthScore}%</span>
+            </div>
+            <Progress value={controlStatus.healthScore} className="h-2" />
+            <p className="text-sm text-muted-foreground mt-1">Health Score</p>
+          </CardContent>
+        </Card>
+        
+        <Card className="glass-card">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between mb-2">
+              <RefreshCw className={`w-5 h-5 ${controlStatus.isRunning && !controlStatus.isPaused ? 'animate-spin text-primary' : 'text-muted-foreground'}`} />
+              <span className="text-xl font-bold">{controlStatus.totalCycles}</span>
+            </div>
+            <p className="text-sm text-muted-foreground">Total Cycles</p>
+          </CardContent>
+        </Card>
+        
+        <Card className="glass-card">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between mb-2">
+              <Clock className="w-5 h-5 text-primary" />
+              <span className="text-lg font-mono">{formatUptimeMs(controlStatus.uptime)}</span>
+            </div>
+            <p className="text-sm text-muted-foreground">Uptime</p>
+          </CardContent>
+        </Card>
+      </div>
+      
+      {/* Control Buttons */}
+      <Card className="glass-card">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Settings className="w-5 h-5" />
+            Agent Control
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap gap-3">
+            {!controlStatus.isRunning ? (
+              <Button onClick={() => sendAction('start')} disabled={loading} className="bg-green-600 hover:bg-green-700">
+                <Play className="w-4 h-4 mr-2" /> Start Agent
+              </Button>
+            ) : controlStatus.isPaused ? (
+              <Button onClick={() => sendAction('resume')} disabled={loading} className="bg-green-600 hover:bg-green-700">
+                <Play className="w-4 h-4 mr-2" /> Resume Agent
+              </Button>
+            ) : (
+              <Button onClick={() => sendAction('pause')} disabled={loading} variant="secondary">
+                <Pause className="w-4 h-4 mr-2" /> Pause Agent
+              </Button>
+            )}
+            
+            {controlStatus.isRunning && (
+              <Button onClick={() => sendAction('stop')} disabled={loading} variant="destructive">
+                <Square className="w-4 h-4 mr-2" /> Stop Agent
+              </Button>
+            )}
+            
+            <Button onClick={() => sendAction('restart')} disabled={loading || !controlStatus.isRunning} variant="outline">
+              <RotateCcw className="w-4 h-4 mr-2" /> Restart
+            </Button>
+          </div>
+          
+          <Separator />
+          
+          {/* Quick Settings */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Mode</p>
+              <div className="flex gap-1">
+                {['autonomous', 'supervised', 'manual'].map(mode => (
+                  <Button key={mode} size="sm" variant={controlConfig.mode === mode ? 'default' : 'outline'}
+                    onClick={() => sendAction('set_mode', { mode })} disabled={loading}>
+                    {mode.charAt(0).toUpperCase()}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-medium">Auto-Recover</p>
+              <Switch checked={controlConfig.autoRecover} onCheckedChange={(checked) => sendAction('toggle_auto_recover', { enabled: checked })} />
+            </div>
+            
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-medium">Auto-Improve</p>
+              <Switch checked={controlConfig.autoImprove} onCheckedChange={(checked) => sendAction('toggle_auto_improve', { enabled: checked })} />
+            </div>
+            
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-medium">Learning</p>
+              <Switch checked={controlConfig.learningEnabled} onCheckedChange={(checked) => sendAction('toggle_learning', { enabled: checked })} />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+      
+      {/* Recent Learnings */}
+      <Card className="glass-card">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <BookOpen className="w-5 h-5" />
+            Recent Learnings
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ScrollArea className="h-48">
+            {learnings.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <BookOpen className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                <p>No learnings yet. Start the agent to begin learning.</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {learnings.map(l => (
+                  <div key={l.id} className="p-2 rounded bg-muted/20">
+                    <div className="flex items-center justify-between mb-1">
+                      <Badge variant="outline" className="text-xs">{l.type}</Badge>
+                      <span className="text-xs text-muted-foreground">{l.confidence}%</span>
+                    </div>
+                    <p className="text-sm">{l.insight}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </ScrollArea>
+        </CardContent>
+      </Card>
+      
+      {/* Error Display */}
+      {controlStatus.lastError && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Error</AlertTitle>
+          <AlertDescription>{controlStatus.lastError}</AlertDescription>
+        </Alert>
+      )}
+    </div>
+  )
+}
 
 // ============================================================================
 // MAIN COMPONENT
@@ -813,6 +1124,7 @@ export default function CLAWDEVDashboard() {
         <nav className="flex-1 p-2">
           {[
             { id: 'dashboard', icon: Activity, label: 'Dashboard' },
+            { id: 'control', icon: Shield, label: 'Control' },
             { id: 'agent', icon: Brain, label: 'Agente' },
             { id: 'browser', icon: Globe, label: 'Navegador' },
             { id: 'chat', icon: MessageSquare, label: 'Chat AI' },
@@ -886,6 +1198,7 @@ export default function CLAWDEVDashboard() {
           <div className="flex items-center gap-4">
             <h2 className="text-xl font-semibold">
               {activeTab === 'dashboard' && 'Dashboard'}
+              {activeTab === 'control' && 'Controle Total do Agente'}
               {activeTab === 'agent' && 'Agente Autônomo'}
               {activeTab === 'browser' && 'Navegador Autônomo'}
               {activeTab === 'chat' && 'Chat AI'}
@@ -1132,6 +1445,14 @@ export default function CLAWDEVDashboard() {
                   </CardContent>
                 </Card>
               </div>
+            </div>
+          )}
+
+          {/* CONTROL TAB - Full Agent Control */}
+          {activeTab === 'control' && (
+            <div className="space-y-6">
+              {/* Import and use the AgentControlPanel component inline */}
+              <AgentControlPanelInline />
             </div>
           )}
 

@@ -28,16 +28,25 @@ model Post {
   updatedAt DateTime @updatedAt
 }
 
-// CLAWDEV Models
+// CLAWDEV Models - Enhanced for Autonomous Agent
 
 model Learning {
   id          String   @id @default(cuid())
   insight     String
-  category    String   // "error", "optimization", "pattern", "security"
+  category    String   // "error", "optimization", "pattern", "security", "code", "system", "browser", "api", "performance", "general"
   context     String?
   actionTaken String?
   success     Boolean  @default(true)
+  confidence  Int      @default(70) // 0-100
+  applicableTo String? // JSON array of domains
+  relatedTo   String?  // JSON array of related learning IDs
+  usageCount  Int      @default(0)
+  lastUsed    DateTime?
   createdAt   DateTime @default(now())
+  
+  @@index([category])
+  @@index([success])
+  @@index([createdAt])
 }
 
 model ChatMessage {
@@ -46,26 +55,40 @@ model ChatMessage {
   content   String
   provider  String?  // "zai", "groq", "local"
   timestamp DateTime @default(now())
+  
+  @@index([timestamp])
 }
 
 model Log {
   id        String   @id @default(cuid())
   level     String   // "INFO", "WARN", "ERROR", "DEBUG"
   message   String
-  source    String?  // "agent", "api", "system", "skill"
+  source    String?  // "agent", "api", "system", "skill", "controller", "learning"
   metadata  String?  // JSON string for additional data
   timestamp DateTime @default(now())
+  
+  @@index([level])
+  @@index([timestamp])
 }
 
 model Action {
-  id          String   @id @default(cuid())
-  type        String   // "fix", "optimize", "deploy", "restart", "alert"
-  description String
-  status      String   // "pending", "approved", "rejected", "completed", "failed"
-  result      String?
-  autoApproved Boolean @default(false)
-  createdAt   DateTime @default(now())
-  completedAt DateTime?
+  id            String    @id @default(cuid())
+  type          String    // "fix", "optimize", "deploy", "restart", "alert", "learn", "improve", "execute"
+  description   String?
+  status        String    // "pending", "approved", "running", "completed", "failed", "cancelled"
+  priority      Int       @default(0)
+  result        String?
+  error         String?
+  autoApproved  Boolean   @default(false)
+  requiresApproval Boolean @default(false)
+  metadata      String?   // JSON for additional data
+  createdAt     DateTime  @default(now())
+  startedAt     DateTime?
+  completedAt   DateTime?
+  
+  @@index([status])
+  @@index([type])
+  @@index([createdAt])
 }
 
 model Skill {
@@ -75,7 +98,12 @@ model Skill {
   enabled     Boolean  @default(true)
   usageCount  Int      @default(0)
   lastUsed    DateTime?
-  category    String   // "scanner", "analyzer", "security", "automation"
+  category    String   // "scanner", "analyzer", "security", "automation", "browser", "code", "learning"
+  status      String   @default("idle") // "active", "idle", "error"
+  config      String?  // JSON for skill-specific config
+  
+  @@index([category])
+  @@index([enabled])
 }
 
 model AgentConfig {
@@ -92,5 +120,89 @@ model Metric {
   value       Float
   unit        String?
   category    String   // "system", "api", "agent"
+  metadata    String?  // JSON for additional data
   timestamp   DateTime @default(now())
+  
+  @@index([name])
+  @@index([category])
+  @@index([timestamp])
+}
+
+// New model for Agent State Persistence
+model AgentState {
+  id                String   @id @default("main")
+  state             String   @default("idle") // "idle", "starting", "running", "paused", "stopping", "error", "recovering"
+  isRunning         Boolean  @default(false)
+  isPaused          Boolean  @default(false)
+  isRecovering      Boolean  @default(false)
+  currentCycle      Int      @default(0)
+  totalCycles       Int      @default(0)
+  uptime            Int      @default(0) // milliseconds
+  startTime         DateTime?
+  lastActivity      DateTime?
+  lastError         String?
+  consecutiveErrors Int      @default(0)
+  healthScore       Int      @default(100) // 0-100
+  pendingActions    Int      @default(0)
+  learningProgress  Int      @default(0)
+  configJson        String?  // JSON for full config
+  goalsJson         String?  // JSON for goals array
+  updatedAt         DateTime @updatedAt
+}
+
+// New model for Goals
+model Goal {
+  id            String   @id @default(cuid())
+  type          String   // "monitor", "fix", "improve", "learn", "deploy", "custom"
+  description   String?
+  priority      Int      @default(5)
+  enabled       Boolean  @default(true)
+  schedule      String?  // cron expression
+  lastExecuted  DateTime?
+  nextExecution DateTime?
+  successCount  Int      @default(0)
+  failureCount  Int      @default(0)
+  config        String?  // JSON for goal-specific config
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  @@index([type])
+  @@index([enabled])
+}
+
+// New model for Patterns detected by the learning system
+model Pattern {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  frequency   Int      @default(1)
+  significance Int     @default(0) // 0-100
+  outcomes    String?  // JSON: { positive, negative, neutral }
+  correlations String? // JSON array of correlated pattern IDs
+  firstSeen   DateTime @default(now())
+  lastSeen    DateTime @default(now())
+  active      Boolean  @default(true)
+  
+  @@index([active])
+  @@index([significance])
+}
+
+// New model for Scheduled Tasks
+model ScheduledTask {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  schedule    String   // cron expression
+  action      String   // action type to execute
+  params      String?  // JSON for action parameters
+  enabled     Boolean  @default(true)
+  lastRun     DateTime?
+  nextRun     DateTime?
+  successCount Int     @default(0)
+  failureCount Int     @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([enabled])
+  @@index([nextRun])
 }
