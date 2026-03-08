@@ -173,6 +173,31 @@ class LearningEngine {
   }
 
   /**
+   * Cross-reference learning with existing knowledge
+   */
+  private async crossReference(entry: LearningEntry): Promise<void> {
+    // Find related learnings based on keywords
+    const keywords = this.extractKeywords(`${entry.context} ${entry.observation}`)
+    
+    for (const keyword of keywords.slice(0, 3)) {
+      const related = await db.learning.findFirst({
+        where: {
+          insight: { contains: keyword },
+          id: { not: entry.id }
+        }
+      })
+      
+      if (related) {
+        // Update the entry's related learnings
+        const currentRelated = entry.relatedLearnings || []
+        if (!currentRelated.includes(related.id)) {
+          entry.relatedLearnings = [...currentRelated, related.id]
+        }
+      }
+    }
+  }
+
+  /**
    * Generate insight from observation and action
    */
   private async generateInsight(
