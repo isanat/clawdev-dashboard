@@ -19,6 +19,17 @@ export async function POST(request: NextRequest) {
 
     console.log('[UPDATE] Iniciando atualização...')
 
+    // Git stash to save local changes
+    console.log('[UPDATE] Fazendo stash das alterações locais...')
+    try {
+      await execAsync('git stash', {
+        cwd: '/root/clawdev-dashboard',
+        timeout: 30000
+      })
+    } catch (e) {
+      console.log('[UPDATE] Nenhum stash necessário')
+    }
+
     // Git pull
     console.log('[UPDATE] Executando git pull...')
     const pullResult = await execAsync('git pull origin main', {
@@ -34,6 +45,14 @@ export async function POST(request: NextRequest) {
       timeout: 120000
     })
     console.log('[UPDATE] Bun install:', installResult.stdout)
+
+    // Build
+    console.log('[UPDATE] Compilando projeto...')
+    const buildResult = await execAsync('bun run build', {
+      cwd: '/root/clawdev-dashboard',
+      timeout: 180000
+    })
+    console.log('[UPDATE] Build:', buildResult.stdout?.slice(-500))
 
     // PM2 restart
     console.log('[UPDATE] Reiniciando PM2...')
@@ -55,6 +74,7 @@ export async function POST(request: NextRequest) {
       results: {
         pull: pullResult.stdout || pullResult.stderr,
         install: installResult.stdout || installResult.stderr,
+        build: (buildResult.stdout || buildResult.stderr)?.slice(-500),
         restart: restartResult.stdout || restartResult.stderr,
         status: statusResult.stdout || statusResult.stderr
       }
