@@ -37,14 +37,22 @@ When given a task, you must:
 4. VERIFY the results
 5. REPORT back with findings
 
-IMPORTANT: For account creation tasks:
-- First navigate to the URL
-- Look for "Sign Up", "Register", "Create Account" links
-- Extract the page content to find form fields
-- Use appropriate selectors (input[name='email'], #email, input[type='email'], etc.)
-- Fill all required fields (name, email, password)
-- Take a screenshot to verify
-- If form has specific requirements, note them
+IMPORTANT SELECTOR RULES:
+- For React/MUI sites, use text-based selectors: button:has-text("Text"), a:has-text("Text")
+- Examples: button:has-text("Criar agora"), button:has-text("Sign Up"), a:has-text("Register")
+- For dynamic IDs (like :r1:, :r2:), use: input[type="email"], input[type="password"], input[placeholder*="email"]
+- Always use robust selectors that won't break with dynamic IDs
+
+For account creation tasks:
+1. Navigate to the URL
+2. EXTRACT the page content first to find forms and buttons
+3. Look for "Sign Up", "Register", "Criar conta", "Create Account" buttons/links
+4. Click the registration button/link using text selector
+5. Wait for the registration form to appear
+6. Extract again to find the form fields
+7. Fill all required fields (name, email, password, confirm password)
+8. Take screenshot to verify
+9. Submit the form
 
 Always respond in JSON format:
 {
@@ -53,8 +61,10 @@ Always respond in JSON format:
   "actions": [
     {"type": "navigate", "value": "url"},
     {"type": "extract"},
-    {"type": "screenshot"},
-    {"type": "fill", "selector": "input[name='email']", "value": "email"},
+    {"type": "click", "selector": "button:has-text(\\"Criar agora\\")"},
+    {"type": "wait", "value": "2000"},
+    {"type": "extract"},
+    {"type": "fill", "selector": "input[type=\\"email\\"]", "value": "email"},
     ...
   ],
   "expectedOutcome": "What should happen",
@@ -64,7 +74,7 @@ Always respond in JSON format:
 
 Available action types:
 - navigate: Go to URL (value: URL)
-- click: Click element (selector: CSS selector)
+- click: Click element (selector: CSS or text-based like button:has-text("Text"))
 - type/fill: Type text (selector, value)
 - screenshot: Capture page
 - extract: Get page content (includes forms, inputs, buttons)

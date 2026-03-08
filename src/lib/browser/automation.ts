@@ -141,10 +141,38 @@ async function executeAction(page: Page, action: BrowserAction): Promise<Browser
           return { success: false, error: 'Seletor é obrigatório para clique' }
         }
         try {
-          await page.click(action.selector, { timeout })
-          return { success: true, data: 'Clicado com sucesso' }
+          // Try multiple selector strategies
+          const selectorStrategies = [
+            action.selector, // Original selector
+          ]
+          
+          // If selector contains :has-text, also try text= selector
+          if (action.selector.includes(':has-text(')) {
+            const textMatch = action.selector.match(/:has-text\(["'](.+?)["']\)/)
+            if (textMatch) {
+              selectorStrategies.push(`text=${textMatch[1]}`)
+              selectorStrategies.push(`button:visible >> text=${textMatch[1]}`)
+            }
+          }
+          
+          let lastError: any = null
+          for (const selector of selectorStrategies) {
+            try {
+              await page.click(selector, { timeout: 10000 })
+              return { success: true, data: `Clicado com sucesso usando: ${selector}` }
+            } catch (e: any) {
+              lastError = e
+              continue
+            }
+          }
+          
+          // If all strategies fail, find alternatives
+          const alternatives = await findAlternativeClickTargets(page, action.selector)
+          if (alternatives.found) {
+            return { success: false, error: `Elemento "${action.selector}" não encontrado. Alternativas: ${alternatives.suggestions}` }
+          }
+          return { success: false, error: `Elemento "${action.selector}" não encontrado na página. Verifique se o seletor está correto.` }
         } catch (clickError: any) {
-          // Try to find alternative selectors
           const alternatives = await findAlternativeClickTargets(page, action.selector)
           if (alternatives.found) {
             return { success: false, error: `Elemento "${action.selector}" não encontrado. Alternativas: ${alternatives.suggestions}` }
