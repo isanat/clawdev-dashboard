@@ -811,6 +811,37 @@ export default function CLAWDEVDashboard() {
 
         {/* Toggle Button */}
         <div className="p-2 border-t border-border/50">
+          {/* Update Button */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={async () => {
+              if (confirm('Atualizar CLAWDEV para a última versão? O servidor reiniciará.')) {
+                try {
+                  showToast('Atualizando...', 'info')
+                  const res = await fetch('/api/update', {
+                    method: 'POST',
+                    headers: {
+                      'Authorization': 'Bearer Clawdev2024!'
+                    }
+                  })
+                  const data = await res.json()
+                  if (data.success) {
+                    showToast('Atualizado! Aguarde o reinício...', 'success')
+                    setTimeout(() => window.location.reload(), 5000)
+                  } else {
+                    showToast('Erro: ' + data.error, 'error')
+                  }
+                } catch (e: any) {
+                  showToast('Erro ao atualizar', 'error')
+                }
+              }
+            }}
+            className="w-full mb-2 text-xs"
+          >
+            <RefreshCw className="w-3 h-3 mr-1" />
+            {sidebarOpen ? 'Atualizar Sistema' : '↻'}
+          </Button>
           <Button
             variant="ghost"
             size="sm"
