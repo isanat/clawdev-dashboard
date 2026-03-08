@@ -575,8 +575,8 @@ export default function CLAWDEVDashboard() {
       let response
       
       if (action === 'autonomous' && task) {
-        // Full autonomous task
-        response = await fetch('/api/autonomous', {
+        // PROACTIVE autonomous task with thinking
+        response = await fetch('/api/autonomous-v2', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ task, context: `URL: ${url}` })
@@ -595,12 +595,13 @@ export default function CLAWDEVDashboard() {
           })
         })
       } else if (action === 'register') {
-        response = await fetch('/api/autonomous', {
+        // PROACTIVE registration with thinking
+        response = await fetch('/api/autonomous-v2', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
-            task: `Navegue até ${url} e crie uma conta. Primeiro analise a página para encontrar o formulário de registro, depois preencha os campos necessários com email: clawdevagenteai@gmail.com. Tire um screenshot final para verificar o resultado.`,
-            context: `URL: ${url}, Email: clawdevagenteai@gmail.com, Nome: CLAWDEV AI`
+            task: `Navegue até ${url} e crie uma conta. Primeiro analise a página, identifique se está na tela de login ou registro, procure pelo link/botão de criar conta se necessário, preencha os campos com email: clawdevagenteai@gmail.com e uma senha segura.`,
+            context: `URL: ${url}, Email: clawdevagenteai@gmail.com`
           })
         })
       } else {
@@ -629,8 +630,33 @@ export default function CLAWDEVDashboard() {
             </div>
           ` : ''}
           
-          <!-- Execution Steps -->
-          ${data.steps && data.steps.length > 0 ? `
+          <!-- Agent Thoughts (PROACTIVE MODE) -->
+          ${data.thoughts && data.thoughts.length > 0 ? `
+            <div class="space-y-3">
+              <p class="text-sm font-medium text-purple-400">🧠 Raciocínio do Agente PROATIVO</p>
+              <div class="space-y-2">
+                ${data.thoughts.map((thought: any) => `
+                  <div class="p-3 rounded-lg ${thought.success ? 'bg-green-500/5 border-l-4 border-green-500' : 'bg-red-500/5 border-l-4 border-red-500'}">
+                    <div class="flex items-start gap-2">
+                      <span class="text-xs font-mono bg-muted/30 px-2 py-1 rounded">${thought.step}</span>
+                      <div class="flex-1">
+                        ${thought.thinking ? `
+                          <p class="text-sm text-foreground mb-2"><span class="text-purple-400 font-medium">💭 Pensando:</span> ${thought.thinking}</p>
+                        ` : ''}
+                        <p class="text-xs"><span class="text-muted-foreground">Ação:</span> <span class="font-mono">${thought.action}</span></p>
+                        ${thought.result ? `
+                          <p class="text-xs mt-1"><span class="text-muted-foreground">Resultado:</span> <span class="${thought.success ? 'text-green-400' : 'text-red-400'}">${thought.result}</span></p>
+                        ` : ''}
+                      </div>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          ` : ''}
+          
+          <!-- Execution Steps (legacy) -->
+          ${data.steps && data.steps.length > 0 && !data.thoughts ? `
             <div class="space-y-2">
               <p class="text-sm font-medium text-muted-foreground">🔄 Etapas Executadas</p>
               <div class="space-y-1">
