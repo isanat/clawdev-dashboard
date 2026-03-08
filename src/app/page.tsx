@@ -599,8 +599,8 @@ export default function CLAWDEVDashboard() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
-            task: `Criar uma conta no site ${url}`,
-            context: `Email: clawdevagenteai@gmail.com`
+            task: `Navegue até ${url} e crie uma conta. Primeiro analise a página para encontrar o formulário de registro, depois preencha os campos necessários com email: clawdevagenteai@gmail.com. Tire um screenshot final para verificar o resultado.`,
+            context: `URL: ${url}, Email: clawdevagenteai@gmail.com, Nome: CLAWDEV AI`
           })
         })
       } else {
@@ -609,49 +609,131 @@ export default function CLAWDEVDashboard() {
       
       const data = await response.json()
       
-      // Build results HTML
+      // Build results HTML with detailed step-by-step
       let resultsHTML = `
-        <div class="space-y-3">
-          <div class="flex items-center gap-2 ${data.success ? 'text-green-400' : 'text-red-400'}">
-            ${data.success ? '<CheckCircle2 class="w-5 h-5" />' : '<AlertTriangle class="w-5 h-5" />'}
-            <span class="font-medium">${data.success ? 'Sucesso!' : 'Erro'}</span>
+        <div class="space-y-4">
+          <!-- Status Header -->
+          <div class="flex items-center justify-between p-3 rounded-lg ${data.success ? 'bg-green-500/10 border border-green-500/30' : 'bg-red-500/10 border border-red-500/30'}">
+            <div class="flex items-center gap-2 ${data.success ? 'text-green-400' : 'text-red-400'}">
+              ${data.success ? '<CheckCircle2 class="w-5 h-5" />' : '<AlertTriangle class="w-5 h-5" />'}
+              <span class="font-medium">${data.success ? 'Sucesso!' : 'Falhou'}</span>
+            </div>
+            ${data.provider ? `<Badge variant="outline" class="text-xs">${data.provider}</Badge>` : ''}
           </div>
+          
+          <!-- Task Analysis -->
+          ${data.analysis ? `
+            <div class="p-3 rounded-lg bg-blue-500/10 border border-blue-500/30">
+              <p class="text-sm font-medium text-blue-400 mb-1">📝 Análise da Tarefa</p>
+              <p class="text-xs text-muted-foreground">${data.analysis}</p>
+            </div>
+          ` : ''}
+          
+          <!-- Execution Steps -->
+          ${data.steps && data.steps.length > 0 ? `
+            <div class="space-y-2">
+              <p class="text-sm font-medium text-muted-foreground">🔄 Etapas Executadas</p>
+              <div class="space-y-1">
+                ${data.steps.map((step: any) => `
+                  <div class="flex items-center gap-2 p-2 rounded ${step.status === 'success' ? 'bg-green-500/5' : step.status === 'failed' ? 'bg-red-500/10' : step.status === 'running' ? 'bg-yellow-500/10' : 'bg-muted/10'}">
+                    ${step.status === 'success' ? '<CheckCircle2 class="w-4 h-4 text-green-400 flex-shrink-0" />' : 
+                      step.status === 'failed' ? '<AlertTriangle class="w-4 h-4 text-red-400 flex-shrink-0" />' : 
+                      step.status === 'running' ? '<RefreshCw class="w-4 h-4 text-yellow-400 animate-spin flex-shrink-0" />' :
+                      '<div class="w-4 h-4 rounded-full bg-muted/30 flex-shrink-0" />'}
+                    <span class="text-xs font-mono">${step.step}.</span>
+                    <span class="text-sm ${step.status === 'failed' ? 'text-red-400' : ''}">${step.action}</span>
+                    ${step.selector ? `<span class="text-xs text-muted-foreground">(${step.selector})</span>` : ''}
+                    ${step.duration ? `<span class="text-xs text-muted-foreground ml-auto">${step.duration}ms</span>` : ''}
+                  </div>
+                  ${step.error ? `
+                    <div class="ml-6 p-2 rounded bg-red-500/10 border border-red-500/20">
+                      <p class="text-xs text-red-400">❌ ${step.error}</p>
+                    </div>
+                  ` : ''}
+                  ${step.detectedForms ? `
+                    <div class="ml-6 text-xs text-muted-foreground">
+                      📋 Detectados: ${step.detectedForms} formulários, ${step.detectedInputs} campos de input
+                    </div>
+                  ` : ''}
+                `).join('')}
+              </div>
+            </div>
+          ` : ''}
+          
+          <!-- Error Details -->
+          ${data.errorDetails ? `
+            <div class="p-3 rounded-lg bg-red-500/10 border border-red-500/30 space-y-2">
+              <p class="text-sm font-medium text-red-400">❌ Detalhes do Erro</p>
+              <div class="space-y-1 text-xs">
+                <p><span class="text-muted-foreground">Etapa que falhou:</span> <span class="text-red-400">${data.errorDetails.failedStep} de ${data.errorDetails.totalSteps}</span></p>
+                <p><span class="text-muted-foreground">Ação:</span> ${data.errorDetails.action}</p>
+                <p><span class="text-muted-foreground">Erro:</span> ${data.errorDetails.error}</p>
+                <p class="text-yellow-400 mt-2">💡 Sugestão: ${data.errorDetails.suggestion}</p>
+              </div>
+            </div>
+          ` : ''}
+          
+          <!-- Simple Error (legacy) -->
+          ${data.error && !data.errorDetails ? `
+            <div class="p-3 rounded-lg bg-red-500/10 border border-red-500/30">
+              <p class="text-sm text-red-400">${data.error}</p>
+              ${data.details ? `<p class="text-xs text-muted-foreground mt-1">${data.details}</p>` : ''}
+              ${data.suggestion ? `<p class="text-xs text-yellow-400 mt-2">💡 ${data.suggestion}</p>` : ''}
+            </div>
+          ` : ''}
+          
+          <!-- Summary Stats -->
+          ${data.summary ? `
+            <div class="grid grid-cols-3 gap-2 p-3 rounded-lg bg-muted/20">
+              <div class="text-center">
+                <p class="text-lg font-bold text-primary">${data.summary.completedSteps}/${data.summary.totalSteps}</p>
+                <p class="text-xs text-muted-foreground">Etapas</p>
+              </div>
+              <div class="text-center">
+                <p class="text-lg font-bold text-cyan-400">${data.summary.totalDuration}ms</p>
+                <p class="text-xs text-muted-foreground">Duração</p>
+              </div>
+              <div class="text-center">
+                <p class="text-lg font-bold ${data.confidence && data.confidence > 0.7 ? 'text-green-400' : 'text-yellow-400'}">${data.confidence ? Math.round(data.confidence * 100) : 0}%</p>
+                <p class="text-xs text-muted-foreground">Confiança</p>
+              </div>
+            </div>
+          ` : ''}
       `
       
-      if (data.results) {
-        for (const result of data.results) {
-          if (result.screenshot) {
-            resultsHTML += `
-              <div class="mt-3">
-                <p class="text-sm text-muted-foreground mb-2">Screenshot:</p>
-                <img src="data:image/png;base64,${result.screenshot}" class="rounded-lg border border-border/50 max-w-full" style="max-height: 400px; object-fit: contain;" />
-              </div>
-            `
-          }
-          if (result.vlmAnalysis) {
-            resultsHTML += `
-              <div class="mt-3 p-3 rounded-lg bg-muted/20">
-                <p class="text-sm font-medium mb-1">Análise VLM:</p>
-                <p class="text-xs text-muted-foreground">${result.vlmAnalysis}</p>
-              </div>
-            `
-          }
-          if (result.data) {
-            resultsHTML += `
-              <div class="mt-3 p-3 rounded-lg bg-muted/20 max-h-48 overflow-auto">
-                <p class="text-sm font-medium mb-1">Dados extraídos:</p>
-                <pre class="text-xs text-muted-foreground whitespace-pre-wrap">${JSON.stringify(result.data, null, 2)}</pre>
-              </div>
-            `
-          }
-        }
+      // Screenshot
+      const screenshot = data.screenshot || data.results?.find((r: any) => r.screenshot)?.screenshot
+      if (screenshot) {
+        resultsHTML += `
+          <div class="mt-3">
+            <p class="text-sm text-muted-foreground mb-2">📷 Screenshot:</p>
+            <img src="data:image/png;base64,${screenshot}" class="rounded-lg border border-border/50 max-w-full cursor-pointer hover:opacity-90 transition-opacity" style="max-height: 400px; object-fit: contain;" onclick="window.open('data:image/png;base64,${screenshot}', '_blank')" />
+          </div>
+        `
       }
       
-      if (data.error) {
+      // VLM Analysis
+      if (data.vlmAnalysis) {
         resultsHTML += `
-          <div class="mt-3 p-3 rounded-lg bg-red-500/10 border border-red-500/30">
-            <p class="text-sm text-red-400">${data.error}</p>
+          <div class="mt-3 p-3 rounded-lg bg-purple-500/10 border border-purple-500/30">
+            <p class="text-sm font-medium text-purple-400 mb-1">🤖 Análise Visual (VLM)</p>
+            <p class="text-xs text-muted-foreground">${data.vlmAnalysis}</p>
           </div>
+        `
+      }
+      
+      // Extracted Data
+      const extractedData = data.results?.find((r: any) => r.data && !r.screenshot)?.data
+      if (extractedData) {
+        resultsHTML += `
+          <details class="mt-3">
+            <summary class="text-sm text-muted-foreground cursor-pointer hover:text-foreground">
+              📊 Dados extraídos (${extractedData.forms?.length || 0} formulários, ${extractedData.links?.length || 0} links)
+            </summary>
+            <div class="mt-2 p-3 rounded-lg bg-muted/20 max-h-64 overflow-auto">
+              <pre class="text-xs text-muted-foreground whitespace-pre-wrap">${JSON.stringify(extractedData, null, 2)}</pre>
+            </div>
+          </details>
         `
       }
       
@@ -659,7 +741,7 @@ export default function CLAWDEVDashboard() {
       resultsDiv.innerHTML = resultsHTML
       
       addLog(data.success ? 'info' : 'error', 
-        `[BROWSER] ${action}: ${data.success ? 'Concluído' : data.error}`, 
+        `[BROWSER] ${action}: ${data.success ? 'Concluído' : data.message || data.error}`, 
         'browser'
       )
       
@@ -668,7 +750,9 @@ export default function CLAWDEVDashboard() {
     } catch (error: any) {
       resultsDiv.innerHTML = `
         <div class="p-4 rounded-lg bg-red-500/10 border border-red-500/30">
-          <p class="text-red-400">Erro: ${error.message}</p>
+          <p class="text-sm font-medium text-red-400 mb-1">❌ Erro de Conexão</p>
+          <p class="text-xs text-muted-foreground">${error.message}</p>
+          <p class="text-xs text-yellow-400 mt-2">💡 Verifique se o servidor está rodando e tente novamente.</p>
         </div>
       `
       addLog('error', `[BROWSER] Erro: ${error.message}`, 'browser')

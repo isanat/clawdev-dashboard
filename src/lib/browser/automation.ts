@@ -124,124 +124,241 @@ export async function executeBrowserActions(
 async function executeAction(page: Page, action: BrowserAction): Promise<BrowserResult> {
   const timeout = action.timeout || 30000
   
-  switch (action.type) {
-    case 'navigate':
-      if (!action.value) {
-        return { success: false, error: 'URL required for navigate action' }
-      }
-      await page.goto(action.value, {
-        waitUntil: action.waitFor || 'networkidle',
-        timeout
-      })
-      return { success: true, url: page.url(), title: await page.title() }
-      
-    case 'click':
-      if (!action.selector) {
-        return { success: false, error: 'Selector required for click action' }
-      }
-      await page.click(action.selector, { timeout })
-      return { success: true, data: 'Clicked' }
-      
-    case 'type':
-      if (!action.selector || !action.value) {
-        return { success: false, error: 'Selector and value required for type action' }
-      }
-      await page.fill(action.selector, action.value, { timeout })
-      return { success: true, data: `Typed: ${action.value}` }
-      
-    case 'fill':
-      if (!action.selector || !action.value) {
-        return { success: false, error: 'Selector and value required for fill action' }
-      }
-      await page.fill(action.selector, action.value, { timeout })
-      return { success: true, data: `Filled: ${action.value}` }
-      
-    case 'screenshot':
-      const screenshot = await page.screenshot({
-        fullPage: action.value === 'full',
-        type: 'png'
-      })
-      return {
-        success: true,
-        screenshot: screenshot.toString('base64'),
-        data: 'Screenshot captured'
-      }
-      
-    case 'extract':
-      const content = await page.content()
-      if (action.selector) {
-        const elements = await page.$$(action.selector)
-        const extracted = await Promise.all(
-          elements.map(async el => ({
-            text: await el.textContent(),
-            html: await el.innerHTML()
-          }))
-        )
-        return { success: true, data: extracted }
-      }
-      
-      // Parse with cheerio for structured extraction
-      const $ = cheerio.load(content)
-      const extractedData = {
-        title: $('title').text(),
-        h1: $('h1').map((_, el) => $(el).text()).get(),
-        links: $('a[href]').map((_, el) => ({
-          text: $(el).text(),
-          href: $(el).attr('href')
-        })).get().slice(0, 20),
-        forms: $('form').map((_, el) => ({
-          action: $(el).attr('action'),
-          method: $(el).attr('method'),
-          inputs: $(el).find('input, textarea, select').map((_, inp) => ({
+  try {
+    switch (action.type) {
+      case 'navigate':
+        if (!action.value) {
+          return { success: false, error: 'URL é obrigatória para navegação' }
+        }
+        await page.goto(action.value, {
+          waitUntil: action.waitFor || 'networkidle',
+          timeout
+        })
+        return { success: true, url: page.url(), title: await page.title() }
+        
+      case 'click':
+        if (!action.selector) {
+          return { success: false, error: 'Seletor é obrigatório para clique' }
+        }
+        try {
+          await page.click(action.selector, { timeout })
+          return { success: true, data: 'Clicado com sucesso' }
+        } catch (clickError: any) {
+          // Try to find alternative selectors
+          const alternatives = await findAlternativeClickTargets(page, action.selector)
+          if (alternatives.found) {
+            return { success: false, error: `Elemento "${action.selector}" não encontrado. Alternativas: ${alternatives.suggestions}` }
+          }
+          return { success: false, error: `Elemento "${action.selector}" não encontrado na página. Verifique se o seletor está correto.` }
+        }
+        
+      case 'type':
+        if (!action.selector || !action.value) {
+          return { success: false, error: 'Seletor e valor são obrigatórios para digitação' }
+        }
+        try {
+          await page.fill(action.selector, action.value, { timeout })
+          return { success: true, data: `Digitado: ${action.value}` }
+        } catch (fillError: any) {
+          const alternatives = await findAlternativeInputTargets(page, action.selector)
+          if (alternatives.found) {
+            return { success: false, error: `Campo "${action.selector}" não encontrado. Alternativas: ${alternatives.suggestions}` }
+          }
+          return { success: false, error: `Campo "${action.selector}" não encontrado na página.` }
+        }
+        
+      case 'fill':
+        if (!action.selector || !action.value) {
+          return { success: false, error: 'Seletor e valor são obrigatórios para preenchimento' }
+        }
+        try {
+          await page.fill(action.selector, action.value, { timeout })
+          return { success: true, data: `Preenchido: ${action.value}` }
+        } catch (fillError: any) {
+          const alternatives = await findAlternativeInputTargets(page, action.selector)
+          if (alternatives.found) {
+            return { success: false, error: `Campo "${action.selector}" não encontrado. Alternativas: ${alternatives.suggestions}` }
+          }
+          return { success: false, error: `Campo "${action.selector}" não encontrado na página.` }
+        }
+        
+      case 'screenshot':
+        const screenshot = await page.screenshot({
+          fullPage: action.value === 'full',
+          type: 'png'
+        })
+        return {
+          success: true,
+          screenshot: screenshot.toString('base64'),
+          data: 'Screenshot capturado'
+        }
+        
+      case 'extract':
+        const content = await page.content()
+        if (action.selector) {
+          const elements = await page.$$(action.selector)
+          const extracted = await Promise.all(
+            elements.map(async el => ({
+              text: await el.textContent(),
+              html: await el.innerHTML()
+            }))
+          )
+          return { success: true, data: extracted }
+        }
+        
+        // Parse with cheerio for structured extraction
+        const $ = cheerio.load(content)
+        const extractedData = {
+          title: $('title').text(),
+          url: page.url(),
+          h1: $('h1').map((_, el) => $(el).text()).get(),
+          links: $('a[href]').map((_, el) => ({
+            text: $(el).text().trim(),
+            href: $(el).attr('href')
+          })).get().slice(0, 30),
+          forms: $('form').map((_, el) => ({
+            action: $(el).attr('action'),
+            method: $(el).attr('method'),
+            id: $(el).attr('id'),
+            class: $(el).attr('class'),
+            inputs: $(el).find('input, textarea, select').map((_, inp) => ({
+              name: $(inp).attr('name'),
+              type: $(inp).attr('type'),
+              id: $(inp).attr('id'),
+              placeholder: $(inp).attr('placeholder'),
+              required: $(inp).attr('required') !== undefined,
+              class: $(inp).attr('class')
+            })).get()
+          })).get(),
+          buttons: $('button, input[type="submit"], a.btn, a.button').map((_, el) => ({
+            text: ($(el).text() || $(el).attr('value') || '').trim(),
+            type: $(el).attr('type') || $(el).prop('tagName').toLowerCase(),
+            class: $(el).attr('class'),
+            id: $(el).attr('id')
+          })).get().slice(0, 20),
+          inputs: $('input, textarea, select').map((_, inp) => ({
             name: $(inp).attr('name'),
             type: $(inp).attr('type'),
             id: $(inp).attr('id'),
-            placeholder: $(inp).attr('placeholder')
+            placeholder: $(inp).attr('placeholder'),
+            required: $(inp).attr('required') !== undefined
           })).get()
-        })).get(),
-        buttons: $('button, input[type="submit"]').map((_, el) => ({
-          text: $(el).text() || $(el).attr('value'),
-          type: $(el).attr('type')
-        })).get()
+        }
+        return { success: true, data: extractedData }
+        
+      case 'wait':
+        if (action.selector) {
+          await page.waitForSelector(action.selector, { timeout })
+          return { success: true, data: `Aguardado: ${action.selector}` }
+        }
+        await page.waitForTimeout(action.value ? parseInt(action.value) : 1000)
+        return { success: true, data: `Aguardado ${action.value || 1000}ms` }
+        
+      case 'scroll':
+        if (action.selector) {
+          await page.locator(action.selector).scrollIntoViewIfNeeded()
+        } else {
+          await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
+        }
+        return { success: true, data: 'Rolagem executada' }
+        
+      case 'submit':
+        if (!action.selector) {
+          return { success: false, error: 'Seletor é obrigatório para submit' }
+        }
+        await page.$eval(action.selector, (form: any) => form.submit())
+        return { success: true, data: 'Formulário enviado' }
+        
+      case 'evaluate':
+        if (!action.value) {
+          return { success: false, error: 'Código JavaScript é obrigatório para evaluate' }
+        }
+        const result = await page.evaluate(action.value)
+        return { success: true, data: result }
+        
+      case 'close':
+        await page.close()
+        return { success: true, data: 'Página fechada' }
+        
+      default:
+        return { success: false, error: `Tipo de ação desconhecido: ${action.type}` }
+    }
+  } catch (error: any) {
+    // Provide more detailed error messages
+    if (error.message?.includes('timeout')) {
+      return { success: false, error: `Timeout (${timeout}ms): ${error.message}` }
+    }
+    if (error.message?.includes('net::')) {
+      return { success: false, error: `Erro de rede: ${error.message}` }
+    }
+    return { success: false, error: error.message || 'Erro desconhecido' }
+  }
+}
+
+// Helper function to find alternative click targets
+async function findAlternativeClickTargets(page: Page, originalSelector: string): Promise<{ found: boolean; suggestions: string }> {
+  try {
+    const suggestions: string[] = []
+    
+    // Find buttons by text
+    const buttons = await page.$$('button')
+    for (const btn of buttons.slice(0, 5)) {
+      const text = await btn.textContent()
+      const id = await btn.getAttribute('id')
+      const className = await btn.getAttribute('class')
+      if (text?.trim()) {
+        suggestions.push(`button:has-text("${text.trim().slice(0, 20)}")`)
       }
-      return { success: true, data: extractedData }
-      
-    case 'wait':
-      if (action.selector) {
-        await page.waitForSelector(action.selector, { timeout })
-        return { success: true, data: `Waited for: ${action.selector}` }
+      if (id) {
+        suggestions.push(`#${id}`)
       }
-      await page.waitForTimeout(action.value ? parseInt(action.value) : 1000)
-      return { success: true, data: `Waited ${action.value || 1000}ms` }
-      
-    case 'scroll':
-      if (action.selector) {
-        await page.locator(action.selector).scrollIntoViewIfNeeded()
-      } else {
-        await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
+    }
+    
+    // Find links
+    const links = await page.$$('a')
+    for (const link of links.slice(0, 5)) {
+      const text = await link.textContent()
+      const href = await link.getAttribute('href')
+      if (text?.trim() && (text.toLowerCase().includes('register') || text.toLowerCase().includes('sign') || text.toLowerCase().includes('create'))) {
+        suggestions.push(`a:has-text("${text.trim().slice(0, 20)}")`)
       }
-      return { success: true, data: 'Scrolled' }
+    }
+    
+    return { found: suggestions.length > 0, suggestions: suggestions.slice(0, 3).join(', ') }
+  } catch {
+    return { found: false, suggestions: '' }
+  }
+}
+
+// Helper function to find alternative input targets
+async function findAlternativeInputTargets(page: Page, originalSelector: string): Promise<{ found: boolean; suggestions: string }> {
+  try {
+    const suggestions: string[] = []
+    
+    // Find inputs by type or name
+    const inputs = await page.$$('input')
+    for (const inp of inputs.slice(0, 10)) {
+      const name = await inp.getAttribute('name')
+      const type = await inp.getAttribute('type')
+      const id = await inp.getAttribute('id')
+      const placeholder = await inp.getAttribute('placeholder')
       
-    case 'submit':
-      if (!action.selector) {
-        return { success: false, error: 'Selector required for submit action' }
+      if (type === 'email' || name?.includes('email')) {
+        suggestions.push('input[type="email"] ou input[name*="email"]')
       }
-      await page.$eval(action.selector, (form: any) => form.submit())
-      return { success: true, data: 'Form submitted' }
-      
-    case 'evaluate':
-      if (!action.value) {
-        return { success: false, error: 'JavaScript code required for evaluate action' }
+      if (type === 'password' || name?.includes('pass')) {
+        suggestions.push('input[type="password"] ou input[name*="password"]')
       }
-      const result = await page.evaluate(action.value)
-      return { success: true, data: result }
-      
-    case 'close':
-      await page.close()
-      return { success: true, data: 'Page closed' }
-      
-    default:
-      return { success: false, error: `Unknown action type: ${action.type}` }
+      if (id) {
+        suggestions.push(`#${id}`)
+      }
+    }
+    
+    // Remove duplicates
+    const uniqueSuggestions = [...new Set(suggestions)]
+    return { found: uniqueSuggestions.length > 0, suggestions: uniqueSuggestions.slice(0, 3).join(', ') }
+  } catch {
+    return { found: false, suggestions: '' }
   }
 }
 
